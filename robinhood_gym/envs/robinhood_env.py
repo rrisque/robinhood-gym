@@ -8,6 +8,9 @@ from robinhood_gym import config
 
 
 class RobinhoodEnv(gym.Env):
+    """
+    Gym environment for playing with the stock market. Requires a Robinhood account.
+    """
     metadata = {'render.modes': ['human']}
 
     def __init__(self):
@@ -15,27 +18,21 @@ class RobinhoodEnv(gym.Env):
 
         robin_stocks.login(config.username, config.password)
 
-        self.historicals = pandas.DataFrame(robin_stocks.stocks.get_historicals('MNST', span='year')).set_index(
-            ['begins_at'])
-        self.historicals.index = pandas.to_datetime(self.historicals.index)
-        self.historicals = self.historicals[['open_price', 'close_price', 'high_price', 'low_price']].astype(
-            dtype=float)
+        buying_power = 1000
 
         self.stocks = 0
-        self.net = 1000
+        self.net = buying_power
+        self.starting = buying_power
         self.index = 0
 
-        self.date = self.historicals.index[self.index]
-
-        self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Box(low=self.historicals.min(), high=self.historicals.max())
+        self.action_space = spaces.Box(low=np.array([0]), high=np.array([0]), dtype=int)
 
     def step(self, action):
         self._take_action(action)
         self.index += 1
 
         obs = self._next_observation()
-        reward = self.stocks * np.mean(obs) + self.net
+        reward = self.stocks * np.mean(obs) + self.net - self.starting
         done = False
 
         if self.index >= self.historicals.index.shape[0]:
@@ -46,23 +43,18 @@ class RobinhoodEnv(gym.Env):
         return obs, reward, done
 
     def _take_action(self, action):
-        # buy
-        if action == 1:
-            print('buy')
-            if self.net - self.price > 0:
-                self.net -= self.price
-                self.stocks += 1
+        self.stocks += action[0]
+        self.net -= self.price * action[0]
 
-        # sell
-        if action == 2:
-            print('sell')
-            if self.stocks > 0:
-                self.stocks -= 1
-                self.net += self.price
+        # update valid transactions possible after buying or selling
+        self.action_space = spaces.Box(low=np.array([-self.stocks]), high=np.array([self.net // self.price]), dtype=int)
 
-    def reset(self):
+    def reset(self, symbol=None):
+        self.symbol = symbol
         self.stocks = 0
+        self.historicals = self._get_hitoricals()
         self.date = self.historicals.index[0]
+        self.observation_space = spaces.Box(low=self.historicals.min(), high=self.historicals.max())
 
         return self._next_observation()
 
@@ -70,6 +62,24 @@ class RobinhoodEnv(gym.Env):
         obs = self.historicals.loc[self.date].values
         self.price = np.mean(obs)
         return obs
+
+    def _get_hitoricals(self):
+        """
+        Returns weekly historical pricing data as a pandas DataFrame.
+        """
+        historicals = pandas.DataFrame(robin_stocks.stocks.get_historicals(self.symbol, span='week')).set_index(
+            ['begins_at'])
+        historicals.index = pandas.to_datetime(historicals.index)
+        historicals = historicals[['open_price', 'close_price', 'high_price', 'low_price']].astype(
+            dtype=float)
+        return historicals
+
+    def _get_news(self):
+        """
+        Returns any news data.
+        """
+        news = robin_stocks.get_news(self.symbol)
+        print(news)
 
     def render(self, mode='human'):
         ...
@@ -80,8 +90,8 @@ class RobinhoodEnv(gym.Env):
 
 if __name__ == '__main__':
     env = RobinhoodEnv()
-    env.reset()
+    env.reset(symbol='BYND')
     done = False
     while not done:
         obs, reward, done = env.step(env.action_space.sample())
-        print(obs, reward)
+        print(reward)
