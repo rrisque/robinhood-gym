@@ -22,6 +22,7 @@ class RobinhoodEnv(gym.Env):
             dtype=float)
 
         self.stocks = 0
+        self.net = 1000
         self.index = 0
 
         self.date = self.historicals.index[self.index]
@@ -34,7 +35,7 @@ class RobinhoodEnv(gym.Env):
         self.index += 1
 
         obs = self._next_observation()
-        reward = self.stocks * np.mean(obs)
+        reward = self.stocks * np.mean(obs) + self.net
         done = False
 
         if self.index >= self.historicals.index.shape[0]:
@@ -47,11 +48,17 @@ class RobinhoodEnv(gym.Env):
     def _take_action(self, action):
         # buy
         if action == 1:
-            self.stocks += 1
+            print('buy')
+            if self.net - self.price > 0:
+                self.net -= self.price
+                self.stocks += 1
 
         # sell
         if action == 2:
-            self.stocks -= 1
+            print('sell')
+            if self.stocks > 0:
+                self.stocks -= 1
+                self.net += self.price
 
     def reset(self):
         self.stocks = 0
@@ -61,6 +68,7 @@ class RobinhoodEnv(gym.Env):
 
     def _next_observation(self):
         obs = self.historicals.loc[self.date].values
+        self.price = np.mean(obs)
         return obs
 
     def render(self, mode='human'):
@@ -72,6 +80,7 @@ class RobinhoodEnv(gym.Env):
 
 if __name__ == '__main__':
     env = RobinhoodEnv()
+    env.reset()
     done = False
     while not done:
         obs, reward, done = env.step(env.action_space.sample())
